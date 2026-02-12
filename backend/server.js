@@ -1,30 +1,53 @@
 /**
  * Braille Translator Backend with DeepSeek AI
+ * 盲文翻译后端服务
  */
+
+require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 配置
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'YOUR_API_KEY_HERE';
-const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
+// API Key 检查
+const API_KEY = process.env.DEEPSEEK_API_KEY;
+
+if (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE' || API_KEY === '') {
+  console.warn('========================================');
+  console.warn('⚠️  警告: DEEPSEEK_API_KEY 未配置！');
+  console.warn('========================================');
+  console.warn('请在 .env 文件中设置你的 DeepSeek API Key');
+  console.warn('获取地址: https://platform.deepseek.com/api_keys');
+  console.warn('========================================\n');
+}
+
+const API_URL = 'https://api.deepseek.com/chat/completions';
 
 // 中间件
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.static('public'));
+
+// 检查 Node 版本
+const nodeVersion = parseInt(process.version.slice(1).split('.')[0]);
+if (nodeVersion < 18) {
+  console.warn(`⚠️  建议使用 Node.js 18+ 版本，当前版本: ${process.version}`);
+}
 
 // DeepSeek API 调用
 async function callDeepSeek(messages) {
-  const response = await fetch(DEEPSEEK_API_URL, {
+  if (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE' || API_KEY === '') {
+    throw new Error('API Key 未配置，请在 .env 文件中设置 DEEPSEEK_API_KEY');
+  }
+
+  const response = await fetch(API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+      'Authorization': `Bearer ${API_KEY}`
     },
     body: JSON.stringify({
       model: 'deepseek-chat',
@@ -35,7 +58,8 @@ async function callDeepSeek(messages) {
   });
 
   if (!response.ok) {
-    throw new Error(`DeepSeek API error: ${response.statusText}`);
+    const errorText = await response.text();
+    throw new Error(`DeepSeek API 错误 (${response.status}): ${errorText}`);
   }
 
   const data = await response.json();
@@ -44,10 +68,14 @@ async function callDeepSeek(messages) {
 
 // API 端点
 
-// 1. AI 翻译盲文（使用 DeepSeek）
+// 1. AI 翻译盲文
 app.post('/api/ai-translate', async (req, res) => {
   try {
     const { braille, pinyin } = req.body;
+
+    if (!braille && !pinyin) {
+      return res.json({ success: false, error: '请提供盲文或拼音内容' });
+    }
 
     const messages = [
       {
@@ -72,22 +100,26 @@ app.post('/api/ai-translate', async (req, res) => {
         content: `盲文点阵: ${braille || ''}
 拼音: ${pinyin || ''}
 
-请将上述拼音准确转换为对应的汉字（按分词连写规则，空格分隔汉字）。`
+请将上述内容准确转换为对应的汉字（按分词连写规则，空格分隔汉字）。`
       }
     ];
 
     const result = await callDeepSeek(messages);
     res.json({ success: true, hanzi: result.trim() });
   } catch (error) {
-    console.error('AI翻译错误:', error);
+    console.error('AI翻译错误:', error.message);
     res.json({ success: false, error: error.message });
   }
 });
 
-// 2. AI 解释盲文内容
+// 2. AI 解释内容
 app.post('/api/explain', async (req, res) => {
   try {
     const { text, pinyin, hanzi } = req.body;
+
+    if (!text && !pinyin) {
+      return res.json({ success: false, error: '请提供盲文或拼音内容' });
+    }
 
     const messages = [
       {
@@ -98,8 +130,8 @@ app.post('/api/explain', async (req, res) => {
         role: 'user',
         content: `请解释以下盲文内容的含义：
 
-原始盲文: ${text}
-拼音: ${pinyin}
+原始盲文: ${text || ''}
+拼音: ${pinyin || ''}
 汉字: ${hanzi || '未知'}
 
 请给出：1. 整体含义 2. 可能的使用场景`
@@ -109,15 +141,19 @@ app.post('/api/explain', async (req, res) => {
     const result = await callDeepSeek(messages);
     res.json({ success: true, explanation: result.trim() });
   } catch (error) {
-    console.error('AI解释错误:', error);
+    console.error('AI解释错误:', error.message);
     res.json({ success: false, error: error.message });
   }
 });
 
-// 3. 改进翻译建议
+// 3. 改进建议
 app.post('/api/suggest', async (req, res) => {
   try {
-    const { pinyin } = req.body;
+    const { pinyin, text } = req.body;
+
+    if (!pinyin && !text) {
+      return res.json({ success: false, error: '请提供拼音或盲文内容' });
+    }
 
     const messages = [
       {
@@ -135,7 +171,8 @@ app.post('/api/suggest', async (req, res) => {
         role: 'user',
         content: `请检查以下拼音/盲文的拼写，并给出改进建议：
 
-拼音: ${pinyin}
+拼音: ${pinyin || ''}
+盲文: ${text || ''}
 
 请分析：
 1. 拼写是否正确规范
@@ -147,7 +184,7 @@ app.post('/api/suggest', async (req, res) => {
     const result = await callDeepSeek(messages);
     res.json({ success: true, suggestion: result.trim() });
   } catch (error) {
-    console.error('AI建议错误:', error);
+    console.error('AI建议错误:', error.message);
     res.json({ success: false, error: error.message });
   }
 });
@@ -156,6 +193,10 @@ app.post('/api/suggest', async (req, res) => {
 app.post('/api/convert-explain', async (req, res) => {
   try {
     const { text } = req.body;
+
+    if (!text) {
+      return res.json({ success: false, error: '请提供中文文字' });
+    }
 
     const messages = [
       {
@@ -168,44 +209,68 @@ app.post('/api/convert-explain', async (req, res) => {
 
 文字: ${text}
 
-请逐一解释每个字的盲文点阵结构。`
+请逐一解释每个字的盲文点阵结构、声母、韵母和声调。`
       }
     ];
 
     const result = await callDeepSeek(messages);
     res.json({ success: true, explanation: result.trim() });
   } catch (error) {
-    console.error('AI解释错误:', error);
+    console.error('AI解释错误:', error.message);
     res.json({ success: false, error: error.message });
   }
 });
 
 // 健康检查
 app.get('/api/health', (req, res) => {
+  const apiKeyConfigured = API_KEY && API_KEY !== 'YOUR_API_KEY_HERE' && API_KEY !== '';
   res.json({
-    status: 'ok',
-    deepseek: DEEPSEEK_API_KEY !== 'YOUR_API_KEY_HERE' ? 'configured' : 'not_configured'
+    status: apiKeyConfigured ? 'ok' : 'warning',
+    deepseek: apiKeyConfigured ? 'configured' : 'not_configured',
+    nodeVersion: process.version,
+    message: apiKeyConfigured ? '服务正常运行' : '请在 .env 文件中配置 DEEPSEEK_API_KEY'
+  });
+});
+
+// API Key 配置检查端点
+app.get('/api/config-status', (req, res) => {
+  const configured = API_KEY && API_KEY !== 'YOUR_API_KEY_HERE' && API_KEY !== '';
+  res.json({
+    configured: configured,
+    prefix: configured ? API_KEY.substring(0, 7) + '...' : null
   });
 });
 
 // 启动服务器
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
+  const apiKeyConfigured = API_KEY && API_KEY !== 'YOUR_API_KEY_HERE' && API_KEY !== '';
+
   console.log(`
-========================================
-  盲文翻译后端服务已启动
-========================================
-  本地地址: http://localhost:${PORT}
-  API 端点:
-    - POST /api/ai-translate
-    - POST /api/explain
-    - POST /api/suggest
-    - POST /api/convert-explain
-    - GET  /api/health
-========================================
+╔══════════════════════════════════════════════════════════════╗
+║           盲文翻译后端服务已启动                               ║
+╠══════════════════════════════════════════════════════════════╣
+║  本地地址: http://localhost:${PORT}                           ║
+║  API 端点:                                                    ║
+║    - POST /api/ai-translate    (AI 翻译盲文)                  ║
+║    - POST /api/explain         (AI 解释内容)                  ║
+║    - POST /api/suggest         (AI 改进建议)                  ║
+║    - POST /api/convert-explain (文字转盲文解释)                ║
+║    - GET  /api/health          (健康检查)                      ║
+║    - GET  /api/config-status   (配置状态)                     ║
+╠══════════════════════════════════════════════════════════════╣
+║  DeepSeek API: ${apiKeyConfigured ? '✓ 已配置' : '✗ 未配置'}
+╚══════════════════════════════════════════════════════════════╝
 
-  DeepSeek API 状态: ${DEEPSEEK_API_KEY !== 'YOUR_API_KEY_HERE' ? '已配置' : '未配置'}
+${apiKeyConfigured ? '' : '⚠️  请编辑 backend/.env 文件配置你的 API Key\n'}
 
-  请设置环境变量 DEEPSEEK_API_KEY 或修改 server.js 中的 DEEPSEEK_API_KEY
-========================================
+启动前端后访问: http://localhost:${PORT} (如果 frontend 目录存在)
+或直接在 index.html 中使用
+
   `);
+});
+
+// 优雅退出
+process.on('SIGINT', () => {
+  console.log('\n正在关闭服务...');
+  process.exit(0);
 });

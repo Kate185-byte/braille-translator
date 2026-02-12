@@ -12,7 +12,7 @@
     .subtitle { text-align: center; color: #94a3b8; margin-bottom: 30px; }
     .card { background: rgba(30, 41, 59, 0.8); border-radius: 16px; padding: 24px; margin-bottom: 20px; border: 1px solid rgba(99, 102, 241, 0.2); }
     .card h2 { font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-    textarea, input[type="text"] { width: 100%; padding: 14px; border-radius: 10px; border: 1px solid rgba(99, 102, 241, 0.3); background: rgba(15, 23, 42, 0.6); color: #fff; font-size: 1rem; margin-bottom: 12px; }
+    textarea, input[type="text"], input[type="password"] { width: 100%; padding: 14px; border-radius: 10px; border: 1px solid rgba(99, 102, 241, 0.3); background: rgba(15, 23, 42, 0.6); color: #fff; font-size: 1rem; margin-bottom: 12px; }
     textarea:focus, input:focus { outline: none; border-color: #6366f1; }
     button { padding: 12px 24px; border-radius: 10px; border: none; font-size: 1rem; cursor: pointer; transition: all 0.2s; font-weight: 500; }
     .btn-primary { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; }
@@ -20,6 +20,7 @@
     .btn-ai { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; }
     .btn-ai:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
     .btn-secondary { background: rgba(71, 85, 105, 0.6); color: white; }
+    .btn-small { padding: 8px 16px; font-size: 0.9rem; }
     .result-section { display: none; }
     .result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 20px; }
     .result-card { background: rgba(15, 23, 42, 0.6); border-radius: 10px; padding: 16px; }
@@ -30,6 +31,7 @@
     .status { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
     .status.error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
     .status.success { background: rgba(34, 197, 94, 0.2); color: #86efac; }
+    .status.warning { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
     .validation-status { display: flex; gap: 16px; margin-bottom: 20px; padding: 16px; background: rgba(15, 23, 42, 0.6); border-radius: 12px; flex-wrap: wrap; }
     .validation-item { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
     .validation-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
@@ -48,6 +50,23 @@
     .mode-tab { padding: 8px 16px; border-radius: 8px; background: rgba(71, 85, 105, 0.4); cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
     .mode-tab.active { background: #6366f1; }
     .mode-tab:hover:not(.active) { background: rgba(99, 102, 241, 0.3); }
+    .config-section { margin-bottom: 30px; }
+    .config-card { background: rgba(30, 41, 59, 0.6); border-radius: 12px; padding: 20px; border: 1px solid rgba(99, 102, 241, 0.2); }
+    .api-status { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 12px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; }
+    .api-status-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .api-status-dot.connected { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+    .api-status-dot.disconnected { background: #ef4444; }
+    .api-status-dot.loading { background: #f59e0b; animation: pulse 1s infinite; }
+    .help-text { font-size: 0.85rem; color: #94a3b8; margin-top: 8px; line-height: 1.5; }
+    .help-link { color: #6366f1; text-decoration: none; }
+    .help-link:hover { text-decoration: underline; }
+    .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .loading-overlay.show { display: flex; }
+    .loading-content { background: rgba(30, 41, 59, 0.95); padding: 30px 40px; border-radius: 16px; text-align: center; }
+    .spinner { width: 40px; height: 40px; border: 3px solid rgba(99, 102, 241, 0.3); border-top-color: #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .flex-row { display: flex; gap: 10px; align-items: flex-start; }
+    .flex-row > * { flex: 1; }
   </style>
 </head>
 <body>
@@ -55,27 +74,47 @@
     <h1>盲文翻译工具</h1>
     <p class="subtitle">Chinese Braille Translator - 基于《中国现行盲文》标准 + DeepSeek AI</p>
 
+    <!-- API 配置 -->
+    <div class="config-section">
+      <div class="config-card">
+        <h2>API 配置</h2>
+        <div class="api-status" id="apiStatus">
+          <div class="api-status-dot loading" id="apiStatusDot"></div>
+          <span id="apiStatusText">正在检查后端服务...</span>
+        </div>
+        <div class="flex-row">
+          <input type="password" id="apiKeyInput" placeholder="输入 DeepSeek API Key (sk-...)" />
+          <button class="btn-primary btn-small" onclick="saveApiKey()">保存</button>
+        </div>
+        <p class="help-text">
+          API Key 将保存在浏览器本地存储中。<br>
+          获取 API Key: <a href="https://platform.deepseek.com/api_keys" target="_blank" class="help-link">DeepSeek 官网</a>
+        </p>
+      </div>
+    </div>
+
     <!-- Unicode 盲文输入 -->
     <div class="card">
-      <h2>📝 Unicode 盲文输入</h2>
+      <h2>Unicode 盲文输入</h2>
       <textarea id="unicodeInput" rows="3" placeholder="输入 Unicode 盲文字符 (如: ⠍⠔ = ma)"></textarea>
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button class="btn-primary" onclick="handleUnicode()">🔄 本地翻译</button>
-        <button class="btn-ai" onclick="handleAITranslate()">🤖 DeepSeek AI 翻译</button>
+        <button class="btn-primary" onclick="handleUnicode()">本地翻译</button>
+        <button class="btn-ai" onclick="handleAITranslate()">DeepSeek AI 翻译</button>
         <button class="btn-secondary" onclick="clearAll()">清空</button>
       </div>
     </div>
 
     <!-- AI 功能区 -->
     <div class="card">
-      <h2>🧠 AI 智能功能</h2>
+      <h2>AI 智能功能</h2>
       <div class="mode-tabs">
         <div class="mode-tab active" onclick="switchMode('suggest')">改进建议</div>
         <div class="mode-tab" onclick="switchMode('convert')">文字转盲文</div>
+        <div class="mode-tab" onclick="switchMode('explain')">内容解释</div>
       </div>
       <div id="aiContent">
-        <textarea id="aiInput" rows="2" placeholder="输入盲文或文字内容..."></textarea>
-        <button class="btn-ai" onclick="handleAIFeature()">✨ AI 分析</button>
+        <textarea id="aiInput" rows="2" placeholder="输入拼音或文字内容..."></textarea>
+        <button class="btn-ai" onclick="handleAIFeature()">AI 分析</button>
       </div>
       <div id="aiResult" class="ai-result" style="display: none;"></div>
     </div>
@@ -108,24 +147,92 @@
     </div>
   </div>
 
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-content">
+      <div class="spinner"></div>
+      <div id="loadingText">AI 处理中...</div>
+    </div>
+  </div>
+
   <script src="braille-core.js"></script>
   <script>
-    let currentAIMode = 'explain';
+    const API_BASE = 'http://localhost:3000';
+    let currentAIMode = 'suggest';
+    let apiKey = localStorage.getItem('deepseek_api_key') || '';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      if (apiKey) {
+        document.getElementById('apiKeyInput').value = apiKey;
+      }
+      checkBackendStatus();
+
+      document.getElementById('apiKeyInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') saveApiKey();
+      });
+    });
+
+    function showLoading(text = 'AI 处理中...') {
+      document.getElementById('loadingText').textContent = text;
+      document.getElementById('loadingOverlay').classList.add('show');
+    }
+
+    function hideLoading() {
+      document.getElementById('loadingOverlay').classList.remove('show');
+    }
+
+    function saveApiKey() {
+      const input = document.getElementById('apiKeyInput').value.trim();
+      if (!input) {
+        showToast('请输入 API Key', 'warning');
+        return;
+      }
+      if (!input.startsWith('sk-')) {
+        showToast('API Key 格式错误，应以 sk- 开头', 'warning');
+        return;
+      }
+      apiKey = input;
+      localStorage.setItem('deepseek_api_key', apiKey);
+      showToast('API Key 已保存', 'success');
+      checkBackendStatus();
+    }
+
+    async function checkBackendStatus() {
+      const statusDot = document.getElementById('apiStatusDot');
+      const statusText = document.getElementById('apiStatusText');
+
+      try {
+        const response = await fetch(`${API_BASE}/api/config-status`);
+        const data = await response.json();
+
+        if (data.configured) {
+          statusDot.className = 'api-status-dot connected';
+          statusText.textContent = `后端已连接 (${data.prefix})`;
+        } else {
+          statusDot.className = 'api-status-dot disconnected';
+          statusText.textContent = 'API Key 未配置';
+        }
+      } catch (e) {
+        statusDot.className = 'api-status-dot disconnected';
+        statusText.textContent = '后端服务未启动，请运行: node backend/server.js';
+      }
+    }
 
     function switchMode(mode) {
       currentAIMode = mode;
       document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
       event.target.classList.add('active');
-      const placeholder = {
+      const placeholders = {
         suggest: '输入拼音，让 AI 给出盲文拼写改进建议...',
-        convert: '输入中文文字，让 AI 解释如何转盲文...'
+        convert: '输入中文文字，让 AI 解释如何转盲文...',
+        explain: '输入盲文或拼音，让 AI 解释其含义...'
       };
-      document.getElementById('aiInput').placeholder = placeholder[mode];
+      document.getElementById('aiInput').placeholder = placeholders[mode];
     }
 
     async function handleUnicode() {
       const text = document.getElementById('unicodeInput').value;
-      if (!text.trim()) { showToast('请输入盲文字符', 'error'); return; }
+      if (!text.trim()) { showToast('请输入盲文字符', 'warning'); return; }
 
       const cells = [];
       for (const ch of text) {
@@ -134,10 +241,10 @@
         if (dots) cells.push(dots);
       }
 
-      if (!cells.length) { showToast('未解析到有效点阵', 'error'); return; }
+      if (!cells.length) { showToast('未解析到有效点阵', 'warning'); return; }
 
       const res = BrailleCore.parseCellsToPinyin(cells);
-      if (!res.ok) { showToast(res.error || '解析失败', 'error'); return; }
+      if (!res.ok) { showToast(res.error || '解析失败', 'warning'); return; }
 
       const validation = BrailleCore.validatePinyin(res.pinyin);
       const hanziResult = BrailleCore.pinyinToHanzi(res.pinyin);
@@ -148,7 +255,12 @@
 
     async function handleAITranslate() {
       const text = document.getElementById('unicodeInput').value;
-      if (!text.trim()) { showToast('请输入盲文字符', 'error'); return; }
+      if (!text.trim()) { showToast('请输入盲文字符', 'warning'); return; }
+
+      if (!apiKey) {
+        showToast('请先配置 DeepSeek API Key', 'warning');
+        return;
+      }
 
       const cells = [];
       for (const ch of text) {
@@ -157,39 +269,54 @@
         if (dots) cells.push(dots);
       }
 
-      if (!cells.length) { showToast('未解析到有效点阵', 'error'); return; }
+      if (!cells.length) { showToast('未解析到有效点阵', 'warning'); return; }
 
       const res = BrailleCore.parseCellsToPinyin(cells);
-      if (!res.ok) { showToast(res.error || '解析失败', 'error'); return; }
+      if (!res.ok) { showToast(res.error || '解析失败', 'warning'); return; }
 
-      // 显示本地结果
       const validation = BrailleCore.validatePinyin(res.pinyin);
       const hanziResult = BrailleCore.pinyinToHanzi(res.pinyin);
       renderResult({ cells: text, pinyin: res.pinyin, hanzi: hanziResult.hanzi });
 
-      // 调用 AI
+      showLoading('正在调用 DeepSeek AI...');
       try {
-        const response = await fetch('/api/ai-translate', {
+        const response = await fetch(`${API_BASE}/api/ai-translate`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
           body: JSON.stringify({ braille: text, pinyin: res.pinyin })
         });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
         const data = await response.json();
-        if (data.success) {
+        hideLoading();
+
+        if (data.success && data.hanzi) {
           document.getElementById('aiHanziCard').style.display = 'block';
           document.getElementById('aiHanziOutput').textContent = data.hanzi;
           showToast('AI 翻译完成', 'success');
         } else {
-          showToast('AI 翻译失败: ' + data.error, 'error');
+          showToast(data.error || 'AI 翻译失败', 'warning');
         }
       } catch (e) {
-        showToast('AI 请求失败，请确保后端服务已启动', 'error');
+        hideLoading();
+        showToast('AI 请求失败: ' + e.message, 'warning');
       }
     }
 
     async function handleAIFeature() {
       const input = document.getElementById('aiInput').value;
-      if (!input.trim()) { showToast('请输入内容', 'error'); return; }
+      if (!input.trim()) { showToast('请输入内容', 'warning'); return; }
+
+      if (!apiKey) {
+        showToast('请先配置 DeepSeek API Key', 'warning');
+        return;
+      }
 
       const resultDiv = document.getElementById('aiResult');
       resultDiv.style.display = 'block';
@@ -197,23 +324,36 @@
 
       const endpoints = {
         suggest: '/api/suggest',
-        convert: '/api/convert-explain'
+        convert: '/api/convert-explain',
+        explain: '/api/explain'
       };
 
+      showLoading('正在 AI 分析...');
       try {
-        const response = await fetch(endpoints[currentAIMode], {
+        const response = await fetch(`${API_BASE}${endpoints[currentAIMode]}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: input })
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({ text: input, pinyin: currentAIMode === 'suggest' ? input : undefined })
         });
+
+        hideLoading();
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
         const data = await response.json();
         if (data.success) {
           resultDiv.innerHTML = data.explanation || data.suggestion || data.hanzi || '无结果';
         } else {
-          resultDiv.innerHTML = '错误: ' + data.error + '\n\n请确保后端服务已启动: node backend/server.js';
+          resultDiv.innerHTML = '错误: ' + data.error;
         }
       } catch (e) {
-        resultDiv.innerHTML = '请求失败: ' + e.message + '\n\n请启动后端服务: node backend/server.js';
+        hideLoading();
+        resultDiv.innerHTML = '请求失败: ' + e.message + '\n\n请确保后端服务已启动:\nnode backend/server.js';
       }
     }
 
@@ -243,7 +383,7 @@
       vs.style.display = 'flex';
       vs.innerHTML = `
         <div class="validation-item">
-          <span class="validation-icon ${validation?.isValid ? 'valid' : 'invalid'}">${validation?.isValid ? '✓' : '✗'}</span>
+          <span class="validation-icon ${payload.isValid ? 'valid' : 'warning'}">${payload.isValid ? '✓' : '!'}</span>
           字符合法
         </div>
         <div class="validation-item">
@@ -260,9 +400,29 @@
       document.getElementById('aiResult').style.display = 'none';
     }
 
-    function showToast(msg, type) {
-      alert(msg);
+    function showToast(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `status ${type}`;
+      div.style.position = 'fixed';
+      div.style.top = '20px';
+      div.style.right = '20px';
+      div.style.zIndex = '1001';
+      div.style.animation = 'slideIn 0.3s ease';
+      div.textContent = msg;
+      document.body.appendChild(div);
+
+      setTimeout(() => {
+        div.style.opacity = '0';
+        div.style.transform = 'translateX(100px)';
+        setTimeout(() => div.remove(), 300);
+      }, 3000);
     }
   </script>
+  <style>
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(100px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+  </style>
 </body>
 </html>
