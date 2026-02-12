@@ -70,8 +70,7 @@
     <div class="card">
       <h2>🧠 AI 智能功能</h2>
       <div class="mode-tabs">
-        <div class="mode-tab active" onclick="switchMode('explain')">解释含义</div>
-        <div class="mode-tab" onclick="switchMode('suggest')">改进建议</div>
+        <div class="mode-tab active" onclick="switchMode('suggest')">改进建议</div>
         <div class="mode-tab" onclick="switchMode('convert')">文字转盲文</div>
       </div>
       <div id="aiContent">
@@ -118,8 +117,7 @@
       document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
       event.target.classList.add('active');
       const placeholder = {
-        explain: '输入盲文内容，让 AI 解释含义...',
-        suggest: '输入拼音，让 AI 给出改进建议...',
+        suggest: '输入拼音，让 AI 给出盲文拼写改进建议...',
         convert: '输入中文文字，让 AI 解释如何转盲文...'
       };
       document.getElementById('aiInput').placeholder = placeholder[mode];
@@ -198,7 +196,6 @@
       resultDiv.innerHTML = '<span class="validation-icon loading">⏳</span> AI 分析中...';
 
       const endpoints = {
-        explain: '/api/explain',
         suggest: '/api/suggest',
         convert: '/api/convert-explain'
       };
