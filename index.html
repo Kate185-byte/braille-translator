@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, sans-serif; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); min-height: 100vh; color: #fff; padding: 20px; }
-    .container { max-width: 900px; margin: 0 auto; }
+    .container { max-width: 1000px; margin: 0 auto; }
     h1 { text-align: center; margin-bottom: 8px; font-size: 2rem; }
     .subtitle { text-align: center; color: #94a3b8; margin-bottom: 30px; }
     .card { background: rgba(30, 41, 59, 0.8); border-radius: 16px; padding: 24px; margin-bottom: 20px; border: 1px solid rgba(99, 102, 241, 0.2); }
@@ -17,6 +17,8 @@
     button { padding: 12px 24px; border-radius: 10px; border: none; font-size: 1rem; cursor: pointer; transition: all 0.2s; font-weight: 500; }
     .btn-primary { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; }
     .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4); }
+    .btn-ai { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; }
+    .btn-ai:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
     .btn-secondary { background: rgba(71, 85, 105, 0.6); color: white; }
     .result-section { display: none; }
     .result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 20px; }
@@ -30,35 +32,60 @@
     .status.success { background: rgba(34, 197, 94, 0.2); color: #86efac; }
     .validation-status { display: flex; gap: 16px; margin-bottom: 20px; padding: 16px; background: rgba(15, 23, 42, 0.6); border-radius: 12px; flex-wrap: wrap; }
     .validation-item { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
-    .validation-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .validation-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
     .validation-icon.valid { background: #22c55e; }
     .validation-icon.invalid { background: #ef4444; }
+    .validation-icon.warning { background: #f59e0b; }
+    .validation-icon.loading { background: #6366f1; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     .braille-item { background: rgba(15, 23, 42, 0.6); border-radius: 8px; padding: 12px; text-align: center; }
     .braille-char { font-size: 2rem; margin-bottom: 4px; }
     .braille-dots { font-size: 0.8rem; color: #94a3b8; }
     .braille-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-top: 16px; }
+    .ai-section { margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(99, 102, 241, 0.2); }
+    .ai-result { background: rgba(15, 23, 42, 0.6); border-radius: 10px; padding: 16px; margin-top: 12px; white-space: pre-wrap; line-height: 1.6; }
+    .mode-tabs { display: flex; gap: 10px; margin-bottom: 16px; }
+    .mode-tab { padding: 8px 16px; border-radius: 8px; background: rgba(71, 85, 105, 0.4); cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
+    .mode-tab.active { background: #6366f1; }
+    .mode-tab:hover:not(.active) { background: rgba(99, 102, 241, 0.3); }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>盲文翻译工具</h1>
-    <p class="subtitle">Chinese Braille Translator - 基于《中国现行盲文》标准</p>
+    <p class="subtitle">Chinese Braille Translator - 基于《中国现行盲文》标准 + DeepSeek AI</p>
 
     <!-- Unicode 盲文输入 -->
     <div class="card">
       <h2>📝 Unicode 盲文输入</h2>
       <textarea id="unicodeInput" rows="3" placeholder="输入 Unicode 盲文字符 (如: ⠍⠔ = ma)"></textarea>
-      <div style="display: flex; gap: 10px;">
-        <button class="btn-primary" onclick="handleUnicode()">翻译</button>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button class="btn-primary" onclick="handleUnicode()">🔄 本地翻译</button>
+        <button class="btn-ai" onclick="handleAITranslate()">🤖 DeepSeek AI 翻译</button>
         <button class="btn-secondary" onclick="clearAll()">清空</button>
       </div>
+    </div>
+
+    <!-- AI 功能区 -->
+    <div class="card">
+      <h2>🧠 AI 智能功能</h2>
+      <div class="mode-tabs">
+        <div class="mode-tab active" onclick="switchMode('explain')">解释含义</div>
+        <div class="mode-tab" onclick="switchMode('suggest')">改进建议</div>
+        <div class="mode-tab" onclick="switchMode('convert')">文字转盲文</div>
+      </div>
+      <div id="aiContent">
+        <textarea id="aiInput" rows="2" placeholder="输入盲文或文字内容..."></textarea>
+        <button class="btn-ai" onclick="handleAIFeature()">✨ AI 分析</button>
+      </div>
+      <div id="aiResult" class="ai-result" style="display: none;"></div>
     </div>
 
     <!-- 结果显示 -->
     <div class="result-section" id="resultSection">
       <div class="card">
         <h2>翻译结果</h2>
-        <div class="validation-status" id="validationStatus" style="display: none;"></div>
+        <div class="validation-status" id="validationStatus"></div>
         <div class="result-grid">
           <div class="result-card">
             <div class="result-label">盲文字符</div>
@@ -69,8 +96,12 @@
             <div class="result-value" id="pinyinOutput"></div>
           </div>
           <div class="result-card" id="hanziCard">
-            <div class="result-label">汉字</div>
+            <div class="result-label">汉字 (本地)</div>
             <div class="result-value hanzi" id="hanziOutput"></div>
+          </div>
+          <div class="result-card" id="aiHanziCard" style="display: none;">
+            <div class="result-label">汉字 (AI)</div>
+            <div class="result-value hanzi" id="aiHanziOutput" style="color: #10b981;"></div>
           </div>
         </div>
         <div class="braille-grid" id="cellsGrid"></div>
@@ -80,7 +111,21 @@
 
   <script src="braille-core.js"></script>
   <script>
-    function handleUnicode() {
+    let currentAIMode = 'explain';
+
+    function switchMode(mode) {
+      currentAIMode = mode;
+      document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      const placeholder = {
+        explain: '输入盲文内容，让 AI 解释含义...',
+        suggest: '输入拼音，让 AI 给出改进建议...',
+        convert: '输入中文文字，让 AI 解释如何转盲文...'
+      };
+      document.getElementById('aiInput').placeholder = placeholder[mode];
+    }
+
+    async function handleUnicode() {
       const text = document.getElementById('unicodeInput').value;
       if (!text.trim()) { showToast('请输入盲文字符', 'error'); return; }
 
@@ -103,11 +148,84 @@
       showToast('翻译完成', 'success');
     }
 
+    async function handleAITranslate() {
+      const text = document.getElementById('unicodeInput').value;
+      if (!text.trim()) { showToast('请输入盲文字符', 'error'); return; }
+
+      const cells = [];
+      for (const ch of text) {
+        if (ch === ' ') continue;
+        const dots = BrailleCore.brailleCharToDots(ch);
+        if (dots) cells.push(dots);
+      }
+
+      if (!cells.length) { showToast('未解析到有效点阵', 'error'); return; }
+
+      const res = BrailleCore.parseCellsToPinyin(cells);
+      if (!res.ok) { showToast(res.error || '解析失败', 'error'); return; }
+
+      // 显示本地结果
+      const validation = BrailleCore.validatePinyin(res.pinyin);
+      const hanziResult = BrailleCore.pinyinToHanzi(res.pinyin);
+      renderResult({ cells: text, pinyin: res.pinyin, hanzi: hanziResult.hanzi });
+
+      // 调用 AI
+      try {
+        const response = await fetch('/api/ai-translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ braille: text, pinyin: res.pinyin })
+        });
+        const data = await response.json();
+        if (data.success) {
+          document.getElementById('aiHanziCard').style.display = 'block';
+          document.getElementById('aiHanziOutput').textContent = data.hanzi;
+          showToast('AI 翻译完成', 'success');
+        } else {
+          showToast('AI 翻译失败: ' + data.error, 'error');
+        }
+      } catch (e) {
+        showToast('AI 请求失败，请确保后端服务已启动', 'error');
+      }
+    }
+
+    async function handleAIFeature() {
+      const input = document.getElementById('aiInput').value;
+      if (!input.trim()) { showToast('请输入内容', 'error'); return; }
+
+      const resultDiv = document.getElementById('aiResult');
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = '<span class="validation-icon loading">⏳</span> AI 分析中...';
+
+      const endpoints = {
+        explain: '/api/explain',
+        suggest: '/api/suggest',
+        convert: '/api/convert-explain'
+      };
+
+      try {
+        const response = await fetch(endpoints[currentAIMode], {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: input })
+        });
+        const data = await response.json();
+        if (data.success) {
+          resultDiv.innerHTML = data.explanation || data.suggestion || data.hanzi || '无结果';
+        } else {
+          resultDiv.innerHTML = '错误: ' + data.error + '\n\n请确保后端服务已启动: node backend/server.js';
+        }
+      } catch (e) {
+        resultDiv.innerHTML = '请求失败: ' + e.message + '\n\n请启动后端服务: node backend/server.js';
+      }
+    }
+
     function renderResult(payload) {
       document.getElementById('resultSection').style.display = 'block';
       document.getElementById('cellsOutput').textContent = payload.cells || '';
       document.getElementById('pinyinOutput').textContent = payload.pinyin || '';
       document.getElementById('hanziOutput').textContent = payload.hanzi || '';
+      document.getElementById('aiHanziCard').style.display = 'none';
       document.getElementById('hanziCard').style.display = payload.hanzi ? 'block' : 'none';
 
       const grid = document.getElementById('cellsGrid');
@@ -127,14 +245,22 @@
       const vs = document.getElementById('validationStatus');
       vs.style.display = 'flex';
       vs.innerHTML = `
-        <div class="validation-item"><span class="validation-icon ${validation?.isValid ? 'valid' : 'invalid'}">${validation?.isValid ? '✓' : '✗'}</span>字符合法</div>
-        <div class="validation-item"><span class="validation-icon valid">✓</span>音节结构合法</div>
+        <div class="validation-item">
+          <span class="validation-icon ${validation?.isValid ? 'valid' : 'invalid'}">${validation?.isValid ? '✓' : '✗'}</span>
+          字符合法
+        </div>
+        <div class="validation-item">
+          <span class="validation-icon valid">✓</span>
+          音节结构合法
+        </div>
       `;
     }
 
     function clearAll() {
       document.getElementById('unicodeInput').value = '';
+      document.getElementById('aiInput').value = '';
       document.getElementById('resultSection').style.display = 'none';
+      document.getElementById('aiResult').style.display = 'none';
     }
 
     function showToast(msg, type) {
