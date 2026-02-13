@@ -115,15 +115,24 @@ function isIFamilyFinal(final) {
 
 function isValidCombination(initial, final) {
   if (!initial || !final) return false;
-  if (['j', 'q', 'x'].includes(initial)) return isIFamilyFinal(final);
+  const iOrVFamily = isIFamilyFinal(final) || final.startsWith('v') || final === 'ü';
+  if (['j', 'q', 'x'].includes(initial)) return iOrVFamily;
+  if (['g', 'k', 'h'].includes(initial)) return !iOrVFamily;
   return true;
 }
 
 function cellsToPinyin(cells) {
   const options = [];
+  const ambiguousFinals = { '2,6': ['e', 'o'], '1,2,4,5,6': ['uan', 'un'] };
   for (const dots of cells) {
     const key = dotsKey(dots), opts = [];
-    if (reverseFinals[key]) opts.push({ type: 'final', value: reverseFinals[key] });
+    if (reverseFinals[key]) {
+      if (ambiguousFinals[key]) {
+        for (const fin of ambiguousFinals[key]) opts.push({ type: 'final', value: fin });
+      } else {
+        opts.push({ type: 'final', value: reverseFinals[key] });
+      }
+    }
     if (reverseInitials[key]) {
       const ambiguous = { '1,2,4,5': ['g', 'j'], '1,3': ['k', 'q'], '1,2,5': ['h', 'x'] };
       if (ambiguous[key]) for (const onset of ambiguous[key]) opts.push({ type: 'initial', value: onset });
@@ -177,9 +186,286 @@ function validateResult(result) {
 }
 
 function parseCellsToPinyin(cells) {
+  // 短序列用回溯，长序列用贪心
+  if (cells.length <= 6) {
+    const result = cellsToPinyin(cells);
+    if (result) return { ok: true, pinyin: result.pinyin, details: result.details.map(d => ({ ...d, hanzi: '' })) };
+  }
+  const greedy = cellsToPinyinGreedy(cells);
+  if (greedy) return { ok: true, pinyin: greedy.pinyin, details: greedy.details.map(d => ({ ...d, hanzi: '' })) };
+  // 回退到回溯
   const result = cellsToPinyin(cells);
   if (!result) return { ok: false, pinyin: '', details: [], error: '无法找到有效的拼音组合' };
   return { ok: true, pinyin: result.pinyin, details: result.details.map(d => ({ ...d, hanzi: '' })) };
+}
+
+// ========== 贪心顺序解析器（支持声调、指示符、长序列） ==========
+
+// 反向声调表
+const reverseTones = {};
+for (const [tone, dots] of Object.entries(TONE_MAP)) {
+  reverseTones[dotsKey(dots)] = parseInt(tone);
+}
+
+// 指示符点位（单独出现时跳过）
+const INDICATOR_KEYS = new Set(['4', '5', '6', '4,5', '4,6', '5,6', '4,5,6', '3,6']);
+
+function classifyCell(dots) {
+  const key = dotsKey(dots);
+  const ambiguousFinals = { '2,6': ['e', 'o'], '1,2,4,5,6': ['uan', 'un'] };
+  const ambiguousInitials = { '1,2,4,5': ['g', 'j'], '1,3': ['k', 'q'], '1,2,5': ['h', 'x'] };
+
+  const result = { finals: [], initials: [], tone: null, isIndicator: false };
+
+  // 检查声调
+  if (reverseTones[key] !== undefined) {
+    result.tone = reverseTones[key];
+  }
+
+  // 检查韵母
+  if (reverseFinals[key]) {
+    if (ambiguousFinals[key]) {
+      result.finals = ambiguousFinals[key];
+    } else {
+      result.finals = [reverseFinals[key]];
+    }
+  }
+
+  // 检查声母
+  if (reverseInitials[key]) {
+    if (ambiguousInitials[key]) {
+      result.initials = ambiguousInitials[key];
+    } else {
+      result.initials = [reverseInitials[key]];
+    }
+  }
+
+  // 检查指示符
+  if (INDICATOR_KEYS.has(key) && result.finals.length === 0 && result.initials.length === 0) {
+    result.isIndicator = true;
+  }
+
+  return result;
+}
+
+function resolveAmbiguousInitial(initials, nextFinal) {
+  // g/j, k/q, h/x 的消歧：看后续韵母是否是 i族/v族
+  if (initials.length <= 1) return initials[0] || null;
+  const iOrV = nextFinal && (isIFamilyFinal(nextFinal) || nextFinal.startsWith('v') || nextFinal === 'ü');
+  // initials 顺序是 [g,j] / [k,q] / [h,x]
+  return iOrV ? initials[1] : initials[0];
+}
+
+function resolveAmbiguousFinal(finals, initial) {
+  // o/e 消歧：有声母时通常是 e（de, ge, he...），无声母时看具体情况
+  if (finals.length <= 1) return finals[0] || null;
+  if (finals.includes('e') && finals.includes('o')) {
+    // 有声母 → 优先 e（更常见：de, ge, he, le, me, ne, se, ze, ce, re, te）
+    // 无声母 → 优先 o（哦）但 e（饿）也可能，先返回 e
+    // 特殊：b,p,m,f + o 是合法的（bo, po, mo, fo），其他声母 + o 不常见
+    if (initial && ['b', 'p', 'm', 'f'].includes(initial)) return 'o';
+    return 'e';
+  }
+  if (finals.includes('uan') && finals.includes('un')) {
+    // 有声母 g,k,h,d,t,z,c,s,zh,ch,sh,r,l → uan 更常见
+    // j,q,x → un（实际是 üan，但盲文写作 uan）
+    if (initial && ['j', 'q', 'x'].includes(initial)) return 'un';
+    return 'uan';
+  }
+  return finals[0];
+}
+
+function cellsToPinyinGreedy(cells) {
+  const syllables = [];
+  let i = 0;
+
+  while (i < cells.length) {
+    const cur = classifyCell(cells[i]);
+
+    // 1. 纯声调方（前面没有匹配到音节，跳过孤立声调）
+    if (cur.tone !== null && cur.finals.length === 0 && cur.initials.length === 0) {
+      // 附加到前一个音节
+      if (syllables.length > 0) syllables[syllables.length - 1].tone = cur.tone;
+      i++;
+      continue;
+    }
+
+    // 2. 指示符，跳过
+    if (cur.isIndicator) {
+      i++;
+      continue;
+    }
+
+    // 3. 声母开头：尝试 声母 + 韵母 [+ 声调]
+    if (cur.initials.length > 0) {
+      // 看下一个方是否是韵母
+      if (i + 1 < cells.length) {
+        const next = classifyCell(cells[i + 1]);
+        if (next.finals.length > 0) {
+          // 先根据韵母消歧声母
+          const fin = resolveAmbiguousFinal(next.finals, null);
+          const ini = resolveAmbiguousInitial(cur.initials, fin);
+          // 验证组合
+          if (ini && fin && isValidCombination(ini, fin)) {
+            const finalResolved = resolveAmbiguousFinal(next.finals, ini);
+            const syl = { onset: ini, rime: finalResolved, pinyin: ini + finalResolved, tone: 0 };
+            i += 2;
+            // 检查声调
+            if (i < cells.length) {
+              const toneCell = classifyCell(cells[i]);
+              if (toneCell.tone !== null && toneCell.finals.length === 0 && toneCell.initials.length === 0) {
+                syl.tone = toneCell.tone;
+                i++;
+              }
+            }
+            syllables.push(syl);
+            continue;
+          }
+          // 组合无效，尝试所有韵母×声母组合
+          let matched = false;
+          for (const f of next.finals) {
+            for (const ini2 of cur.initials) {
+              if (isValidCombination(ini2, f)) {
+                const syl = { onset: ini2, rime: f, pinyin: ini2 + f, tone: 0 };
+                i += 2;
+                if (i < cells.length) {
+                  const toneCell = classifyCell(cells[i]);
+                  if (toneCell.tone !== null && toneCell.finals.length === 0 && toneCell.initials.length === 0) {
+                    syl.tone = toneCell.tone;
+                    i++;
+                  }
+                }
+                syllables.push(syl);
+                matched = true;
+                break;
+              }
+            }
+            if (matched) break;
+          }
+          if (matched) continue;
+        }
+      }
+      // 声母后面不是韵母，可能是特殊情况（zh/ch/sh/z/c/s/r + i 的整体认读）
+      // 或者这个方其实应该当韵母用（如果它同时也是韵母）
+      if (cur.finals.length > 0) {
+        // 当作韵母处理
+        const fin = resolveAmbiguousFinal(cur.finals, '');
+        const syl = { onset: '', rime: fin, pinyin: fin, tone: 0 };
+        i++;
+        if (i < cells.length) {
+          const toneCell = classifyCell(cells[i]);
+          if (toneCell.tone !== null && toneCell.finals.length === 0 && toneCell.initials.length === 0) {
+            syl.tone = toneCell.tone;
+            i++;
+          }
+        }
+        syllables.push(syl);
+        continue;
+      }
+      // 跳过无法匹配的声母
+      i++;
+      continue;
+    }
+
+    // 4. 韵母开头（零声母音节）：韵母 [+ 声调]
+    if (cur.finals.length > 0) {
+      const fin = resolveAmbiguousFinal(cur.finals, '');
+      const syl = { onset: '', rime: fin, pinyin: fin, tone: 0 };
+      i++;
+      if (i < cells.length) {
+        const toneCell = classifyCell(cells[i]);
+        if (toneCell.tone !== null && toneCell.finals.length === 0 && toneCell.initials.length === 0) {
+          syl.tone = toneCell.tone;
+          i++;
+        }
+      }
+      syllables.push(syl);
+      continue;
+    }
+
+    // 5. 无法识别，跳过
+    i++;
+  }
+
+  if (!syllables.length) return null;
+  return {
+    ok: true,
+    pinyin: syllables.map(s => s.pinyin).join(' '),
+    details: syllables.map(s => ({ onset: s.onset, rime: s.rime, pinyin: s.pinyin }))
+  };
+}
+
+function tryParseAll(options, idx, result, collected, maxResults) {
+  if (idx >= options.length) {
+    const v = validateResult(result);
+    if (v) collected.push(v);
+    return;
+  }
+  for (const opt of options[idx]) {
+    if (opt.type === 'unknown') continue;
+    const newResult = addOption(result, opt);
+    if (newResult) tryParseAll(options, idx + 1, newResult, collected, maxResults);
+    if (collected.length >= maxResults) return;
+  }
+}
+
+function cellsToPinyinAll(cells, maxResults = 10) {
+  const options = [];
+  const ambiguousFinals = { '2,6': ['e', 'o'], '1,2,4,5,6': ['uan', 'un'] };
+  for (const dots of cells) {
+    const key = dotsKey(dots), opts = [];
+    if (reverseFinals[key]) {
+      if (ambiguousFinals[key]) {
+        for (const fin of ambiguousFinals[key]) opts.push({ type: 'final', value: fin });
+      } else {
+        opts.push({ type: 'final', value: reverseFinals[key] });
+      }
+    }
+    if (reverseInitials[key]) {
+      const ambiguous = { '1,2,4,5': ['g', 'j'], '1,3': ['k', 'q'], '1,2,5': ['h', 'x'] };
+      if (ambiguous[key]) for (const onset of ambiguous[key]) opts.push({ type: 'initial', value: onset });
+      else opts.push({ type: 'initial', value: reverseInitials[key] });
+    }
+    opts.push({ type: 'unknown', value: null });
+    options.push(opts);
+  }
+  const collected = [];
+  tryParseAll(options, 0, [], collected, maxResults);
+  // 去重
+  const seen = new Set();
+  return collected.filter(r => {
+    if (seen.has(r.pinyin)) return false;
+    seen.add(r.pinyin);
+    return true;
+  });
+}
+
+function parseCellsToPinyinAll(cells, maxResults = 10) {
+  // 长序列：贪心结果作为首选，回溯作为补充
+  const candidates = [];
+  const seen = new Set();
+
+  // 贪心解析（始终尝试，对长序列是唯一可行方案）
+  const greedy = cellsToPinyinGreedy(cells);
+  if (greedy) {
+    candidates.push({ pinyin: greedy.pinyin, details: greedy.details.map(d => ({ ...d, hanzi: '' })) });
+    seen.add(greedy.pinyin);
+  }
+
+  // 短序列补充回溯结果
+  if (cells.length <= 8) {
+    const results = cellsToPinyinAll(cells, maxResults);
+    for (const r of results) {
+      if (!seen.has(r.pinyin)) {
+        candidates.push({ pinyin: r.pinyin, details: r.details.map(d => ({ ...d, hanzi: '' })) });
+        seen.add(r.pinyin);
+      }
+      if (candidates.length >= maxResults) break;
+    }
+  }
+
+  if (!candidates.length) return { ok: false, candidates: [], error: '无法找到有效的拼音组合' };
+  return { ok: true, candidates };
 }
 
 function validateSyllable(syllable) {
@@ -312,7 +598,7 @@ const BrailleCore = {
     }
     return cells.length ? { ok: true, cells } : { ok: false };
   },
-  parseSyllable, syllableToBraille, parseCellsToPinyin, pinyinToHanzi,
+  parseSyllable, syllableToBraille, parseCellsToPinyin, parseCellsToPinyinAll, pinyinToHanzi,
   validateSyllable, validatePinyin, validateSequence: p => p.trim() ? { ok: true } : { ok: false },
   INITIALS_MAP, FINALS_MAP, TONE_MAP,
 };

@@ -93,6 +93,83 @@
       </div>
     </div>
 
+    <!-- 图片识别盲文 -->
+    <div class="card">
+      <h2>图片识别盲文</h2>
+      <div id="ocrDropZone" style="border:2px dashed rgba(99,102,241,0.4); border-radius:12px; padding:40px 20px; text-align:center; cursor:pointer; transition:all 0.2s; margin-bottom:12px; background:rgba(15,23,42,0.3);">
+        <div style="font-size:2.5rem; margin-bottom:8px; opacity:0.5;">&#128444;</div>
+        <div style="color:#94a3b8;">将盲文图片拖到这里，或点击选择</div>
+        <input type="file" id="ocrFileInput" accept="image/*" style="display:none;" onchange="handleOCRFileSelect(event)">
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        <button class="btn-primary" id="ocrRecognizeBtn" onclick="handleOCRRecognize()" disabled>识别</button>
+        <button class="btn-ai" id="ocrAIBtn" onclick="handleOCRDisambiguate()" disabled>AI 语义翻译</button>
+      </div>
+
+      <!-- 预览区 -->
+      <div id="ocrPreviewArea" style="display:none;">
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+          <div style="flex:1; min-width:250px;">
+            <div class="result-label">原图</div>
+            <canvas id="ocrOriginalCanvas" style="max-width:100%; border-radius:8px; background:#0f172a;"></canvas>
+          </div>
+          <div style="flex:1; min-width:250px;">
+            <div class="result-label">检测结果</div>
+            <canvas id="ocrResultCanvas" style="max-width:100%; border-radius:8px; background:#0f172a;"></canvas>
+          </div>
+        </div>
+
+        <!-- 处理步骤 -->
+        <div id="ocrSteps" class="validation-status" style="display:none;"></div>
+
+        <!-- 参数调节 -->
+        <div id="ocrParams" style="display:none; margin-bottom:12px; padding:12px; background:rgba(15,23,42,0.6); border-radius:10px;">
+          <div class="result-label" style="margin-bottom:8px;">参数调节（调节后点击"重新识别"）</div>
+          <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+            <label style="font-size:0.9rem;">
+              灵敏度: <input type="range" id="ocrThreshold" min="1" max="40" value="15" style="vertical-align:middle; width:120px;">
+              <span id="ocrThresholdVal">15</span>
+            </label>
+            <label style="font-size:0.9rem;">
+              最小点面积: <input type="range" id="ocrMinArea" min="5" max="200" value="20" style="vertical-align:middle; width:120px;">
+              <span id="ocrMinAreaVal">20</span>
+            </label>
+            <label style="font-size:0.9rem;">
+              最大点面积: <input type="range" id="ocrMaxArea" min="200" max="5000" value="2000" style="vertical-align:middle; width:120px;">
+              <span id="ocrMaxAreaVal">2000</span>
+            </label>
+            <button class="btn-secondary btn-small" onclick="handleOCRRecognize()">重新识别</button>
+          </div>
+        </div>
+
+        <!-- OCR 结果 -->
+        <div id="ocrResultInfo" style="display:none;">
+          <div class="result-grid">
+            <div class="result-card">
+              <div class="result-label">检测到的点位</div>
+              <div id="ocrDotsOutput" class="result-value" style="font-size:1rem; letter-spacing:1px;"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">拼音（首选）</div>
+              <div id="ocrPinyinOutput" class="result-value"></div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">汉字（本地）</div>
+              <div id="ocrHanziOutput" class="result-value hanzi"></div>
+            </div>
+            <div class="result-card" id="ocrAIHanziCard" style="display:none;">
+              <div class="result-label">汉字（AI）</div>
+              <div id="ocrAIHanziOutput" class="result-value hanzi" style="color:#10b981;"></div>
+            </div>
+          </div>
+          <div id="ocrCandidates" style="margin-top:12px; display:none;">
+            <div class="result-label">所有候选拼音组合</div>
+            <div id="ocrCandidatesList" style="padding:8px; background:rgba(15,23,42,0.6); border-radius:8px; font-size:0.9rem; line-height:1.8;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Unicode 盲文输入 -->
     <div class="card">
       <h2>Unicode 盲文输入</h2>
@@ -156,6 +233,7 @@
   </div>
 
   <script src="braille-core.js"></script>
+  <script src="braille-ocr.js"></script>
   <script>
     const API_BASE = 'http://localhost:3000';
     let currentAIMode = 'suggest';
@@ -416,6 +494,210 @@
         div.style.transform = 'translateX(100px)';
         setTimeout(() => div.remove(), 300);
       }, 3000);
+    }
+
+    // ========== 图片识别 OCR ==========
+
+    let ocrFile = null;
+    let ocrResult = null;
+    let ocrCandidatesData = null;
+
+    // 拖拽 & 点击
+    document.addEventListener('DOMContentLoaded', () => {
+      const dropZone = document.getElementById('ocrDropZone');
+      const fileInput = document.getElementById('ocrFileInput');
+
+      dropZone.addEventListener('click', () => {
+        const input = document.getElementById('ocrFileInput');
+        if (input) input.click();
+      });
+
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '#6366f1';
+        dropZone.style.background = 'rgba(99,102,241,0.1)';
+      });
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.style.borderColor = 'rgba(99,102,241,0.4)';
+        dropZone.style.background = 'rgba(15,23,42,0.3)';
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = 'rgba(99,102,241,0.4)';
+        dropZone.style.background = 'rgba(15,23,42,0.3)';
+        const file = e.dataTransfer.files[0];
+        if (file && file.type.startsWith('image/')) {
+          loadOCRFile(file);
+        } else {
+          showToast('请拖入图片文件', 'warning');
+        }
+      });
+
+      // 滑块实时显示数值
+      ['ocrThreshold', 'ocrMinArea', 'ocrMaxArea'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', () => {
+          document.getElementById(id + 'Val').textContent = el.value;
+        });
+      });
+    });
+
+    function handleOCRFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) loadOCRFile(file);
+    }
+
+    function loadOCRFile(file) {
+      ocrFile = file;
+      document.getElementById('ocrPreviewArea').style.display = 'block';
+      document.getElementById('ocrRecognizeBtn').disabled = false;
+      document.getElementById('ocrAIBtn').disabled = true;
+      document.getElementById('ocrResultInfo').style.display = 'none';
+      document.getElementById('ocrParams').style.display = 'none';
+      document.getElementById('ocrSteps').style.display = 'none';
+
+      // 拖拽区显示文件名
+      const dropZone = document.getElementById('ocrDropZone');
+      dropZone.innerHTML = `<div style="color:#10b981;">${file.name}</div><div style="color:#94a3b8; font-size:0.85rem; margin-top:4px;">点击或拖拽更换图片</div><input type="file" id="ocrFileInput" accept="image/*" style="display:none;" onchange="handleOCRFileSelect(event)">`;
+      dropZone.querySelector('#ocrFileInput'); // re-bindable via click handler
+
+      // 预览原图
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.getElementById('ocrOriginalCanvas');
+          const maxW = canvas.parentElement.clientWidth || 400;
+          let w = img.width, h = img.height;
+          if (w > maxW) { h = h * maxW / w; w = maxW; }
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+
+      showToast('图片已加载，点击"识别"开始处理', 'success');
+    }
+
+    async function handleOCRRecognize() {
+      if (!ocrFile) { showToast('请先选择图片', 'warning'); return; }
+
+      const stepsDiv = document.getElementById('ocrSteps');
+      stepsDiv.style.display = 'flex';
+      stepsDiv.innerHTML = '<div class="validation-item"><span class="validation-icon loading">...</span> 正在处理...</div>';
+
+      const params = {
+        thresholdSensitivity: parseInt(document.getElementById('ocrThreshold').value),
+        minDotArea: parseInt(document.getElementById('ocrMinArea').value),
+        maxDotArea: parseInt(document.getElementById('ocrMaxArea').value),
+      };
+
+      try {
+        ocrResult = await BrailleOCR.recognize(ocrFile, params);
+
+        // 显示处理步骤
+        stepsDiv.innerHTML = ocrResult.steps.map(s =>
+          `<div class="validation-item"><span class="validation-icon valid">✓</span> ${s.name}${s.count !== undefined ? ' (' + s.count + ')' : ''}</div>`
+        ).join('');
+
+        // 画检测结果
+        const resultCanvas = document.getElementById('ocrResultCanvas');
+        BrailleOCR.drawCellBoundaries(resultCanvas, ocrResult.originalCanvas, ocrResult.blobs, ocrResult.cells, ocrResult.lines, ocrResult.dotSpacing);
+
+        // 显示参数调节
+        document.getElementById('ocrParams').style.display = 'block';
+
+        // 解析拼音
+        if (ocrResult.dotsList.length === 0) {
+          showToast('未检测到盲文点位，请调节参数后重试', 'warning');
+          document.getElementById('ocrResultInfo').style.display = 'none';
+          return;
+        }
+
+        document.getElementById('ocrResultInfo').style.display = 'block';
+        document.getElementById('ocrDotsOutput').textContent = ocrResult.dotsList.map(d => '[' + d.join(',') + ']').join(' ');
+
+        // 获取所有候选拼音
+        const allResult = BrailleCore.parseCellsToPinyinAll(ocrResult.dotsList, 10);
+
+        if (!allResult.ok) {
+          document.getElementById('ocrPinyinOutput').textContent = '无法解析';
+          document.getElementById('ocrHanziOutput').textContent = '-';
+          showToast('检测到点位但无法解析为有效拼音，请调节参数', 'warning');
+          return;
+        }
+
+        ocrCandidatesData = allResult.candidates;
+
+        // 显示首选结果
+        const best = allResult.candidates[0];
+        document.getElementById('ocrPinyinOutput').textContent = best.pinyin;
+        const hanzi = BrailleCore.pinyinToHanzi(best.pinyin);
+        document.getElementById('ocrHanziOutput').textContent = hanzi.hanzi || '-';
+
+        // 显示所有候选
+        if (allResult.candidates.length > 1) {
+          document.getElementById('ocrCandidates').style.display = 'block';
+          document.getElementById('ocrCandidatesList').innerHTML = allResult.candidates.map((c, i) => {
+            const h = BrailleCore.pinyinToHanzi(c.pinyin);
+            return `<div style="padding:4px 8px; ${i === 0 ? 'color:#10b981; font-weight:600;' : 'color:#94a3b8;'}">${i + 1}. ${c.pinyin} → ${h.hanzi || '?'}</div>`;
+          }).join('');
+        } else {
+          document.getElementById('ocrCandidates').style.display = 'none';
+        }
+
+        document.getElementById('ocrAIBtn').disabled = false;
+        showToast(`识别完成：${ocrResult.blobs.length} 个点位，${ocrResult.cells.length} 个盲文方`, 'success');
+
+      } catch (err) {
+        stepsDiv.innerHTML = `<div class="validation-item"><span class="validation-icon invalid">✗</span> 处理失败: ${err.message}</div>`;
+        showToast('图片处理失败: ' + err.message, 'error');
+      }
+    }
+
+    async function handleOCRDisambiguate() {
+      if (!ocrCandidatesData || !ocrCandidatesData.length) {
+        showToast('请先识别图片', 'warning');
+        return;
+      }
+      if (!apiKey) {
+        showToast('请先配置 DeepSeek API Key', 'warning');
+        return;
+      }
+
+      showLoading('AI 正在分析最佳拼音组合...');
+      try {
+        const candidates = ocrCandidatesData.map(c => c.pinyin);
+        const response = await fetch(`${API_BASE}/api/ocr-disambiguate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({ candidates })
+        });
+
+        hideLoading();
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json();
+        if (data.success && data.hanzi) {
+          document.getElementById('ocrAIHanziCard').style.display = 'block';
+          document.getElementById('ocrAIHanziOutput').textContent = data.hanzi;
+          if (data.pinyin) {
+            document.getElementById('ocrPinyinOutput').textContent = data.pinyin + ' (AI)';
+          }
+          showToast('AI 语义翻译完成', 'success');
+        } else {
+          showToast(data.error || 'AI 翻译失败', 'warning');
+        }
+      } catch (e) {
+        hideLoading();
+        showToast('AI 请求失败: ' + e.message, 'error');
+      }
     }
   </script>
   <style>

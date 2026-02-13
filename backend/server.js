@@ -221,6 +221,56 @@ app.post('/api/convert-explain', async (req, res) => {
   }
 });
 
+// 5. OCR 拼音消歧 - 从多个候选拼音中选出最通顺的
+app.post('/api/ocr-disambiguate', async (req, res) => {
+  try {
+    const { candidates } = req.body;
+
+    if (!candidates || !candidates.length) {
+      return res.json({ success: false, error: '请提供候选拼音列表' });
+    }
+
+    const candidateList = candidates.map((c, i) => `${i + 1}. ${c}`).join('\n');
+
+    const messages = [
+      {
+        role: 'system',
+        content: `你是一个专业的中文盲文翻译专家。你的任务是从多个候选拼音组合中，选出最合理、最通顺的一个，并将其转换为汉字。
+
+规则：
+1. 分析每个候选拼音，判断哪个组合能构成有意义的中文词句
+2. 优先选择常用词汇和通顺的语句
+3. 如果多个候选都合理，选择最常用的那个
+4. 将选中的拼音转为对应汉字
+
+输出格式（严格遵守，不要添加任何其他内容）：
+第一行：选中的拼音（原样输出，空格分隔）
+第二行：对应的汉字`
+      },
+      {
+        role: 'user',
+        content: `以下是从盲文图片识别出的多个候选拼音组合，请选出最通顺合理的一个并转为汉字：
+
+${candidateList}`
+      }
+    ];
+
+    const result = await callDeepSeek(messages);
+    const lines = result.trim().split('\n').filter(l => l.trim());
+
+    if (lines.length >= 2) {
+      res.json({ success: true, pinyin: lines[0].trim(), hanzi: lines[1].trim() });
+    } else if (lines.length === 1) {
+      res.json({ success: true, pinyin: candidates[0], hanzi: lines[0].trim() });
+    } else {
+      res.json({ success: false, error: 'AI 返回格式异常' });
+    }
+  } catch (error) {
+    console.error('OCR消歧错误:', error.message);
+    res.json({ success: false, error: error.message });
+  }
+});
+
 // 健康检查
 app.get('/api/health', (req, res) => {
   const apiKeyConfigured = API_KEY && API_KEY !== 'YOUR_API_KEY_HERE' && API_KEY !== '';
@@ -255,6 +305,7 @@ app.listen(PORT, '0.0.0.0', () => {
 ║    - POST /api/explain         (AI 解释内容)                  ║
 ║    - POST /api/suggest         (AI 改进建议)                  ║
 ║    - POST /api/convert-explain (文字转盲文解释)                ║
+║    - POST /api/ocr-disambiguate(OCR 拼音消歧)                 ║
 ║    - GET  /api/health          (健康检查)                      ║
 ║    - GET  /api/config-status   (配置状态)                     ║
 ╠══════════════════════════════════════════════════════════════╣
